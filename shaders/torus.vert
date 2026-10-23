@@ -1,36 +1,55 @@
 #version 450
 
-// Входные данные одной вершины из Vertex Buffer'а
-layout(location = 0) in vec3 inPosition; // Позиция (X, Y, Z)
-layout(location = 1) in vec3 inNormal;   // Нормаль
-layout(location = 2) in vec3 inColor;    // Процедурный цвет (сгенерированный в коде C++)
+// Входные атрибуты вершин из Vertex Buffer
+layout(location = 0) in vec3 inPosition; // Позиция вершины (X, Y, Z) в локальных координатах
+layout(location = 1) in vec3 inNormal;   // Нормаль вершины (процедурно сгенерированная)
+layout(location = 2) in vec3 inColor;    // Процедурный цвет вершины (радужный градиент или белый)
 
-// UBO (Uniform Buffer Object) - данные, которые мы присылаем с CPU каждый кадр
-layout(set = 0, binding = 0) uniform UniformBufferObject {
-    mat4 model;       // Матрица Модели (положение объекта в мире)
-    mat4 view;        // Матрица Камеры (откуда мы смотрим)
-    mat4 proj;        // Матрица Проекции (перспектива/ортографик)
-    vec4 userColor;   // Цвет из интерфейса ImGui
-} ubo;
+// Структура направленного источника света
+struct DirectionalLight {
+    vec4 direction; // xyz: вектор направления света, w: включен (1.0 = вкл, 0.0 = выкл)
+    vec4 color;     // rgb: цвет света, w: интенсивность
+};
+
+// Набор дескрипторов 0 (Set 0): Общие данные сцены
+layout(set = 0, binding = 0) uniform SceneUBO {
+    mat4 view;                // Матрица камеры (View Matrix)
+    mat4 proj;                // Матрица проекции (Projection Matrix)
+    mat4 viewProj;            // Скомбинированная матрица View-Projection
+    vec4 cameraPos;           // xyz: положение камеры в мировом пространстве
+    vec4 ambientLight;        // rgb: цвет фонового света, w: интенсивность фона
+    DirectionalLight dirLight;// Параметры направленного источника
+    int numPointLights;       // Количество активных точечных источников
+    int numSpotLights;        // Количество активных прожекторов
+    int pad0;                 // Выравнивание по стандарту std140
+    int pad1;                 // Выравнивание по стандарту std140
+} scene;
+
+// Набор дескрипторов 1 (Set 1): Данные конкретной модели/объекта
+layout(set = 1, binding = 0) uniform ModelUBO {
+    mat4 model;        // Матрица модели (Model Matrix: Translate * Rotate * Scale)
+    mat4 normalMatrix; // Матрица нормалей: transpose(inverse(model)) для сохранения перпендикулярности
+    vec4 albedo;       // rgb: базовый цвет материала, w: флаг использования цвета вершин
+    vec4 specular;     // rgb: цвет блика, w: показатель блеска (shininess)
+    vec4 emissive;     // rgb: цвет самосвечения, w: флаг unlit (1.0 = без освещения, для маркеров света)
+} model;
 
 // Выходные данные для передачи во фрагментный шейдер
-// Эти значения будут автоматически плавно смешаны (интерполированы) для пикселей внутри треугольника
-layout(location = 0) out vec3 fragNormal;
-layout(location = 1) out vec3 fragPos;
-layout(location = 2) out vec3 fragColor;
+layout(location = 0) out vec3 fragNormal; // Нормаль в мировых координатах
+layout(location = 1) out vec3 fragPos;    // Координаты фрагмента в мировом пространстве
+layout(location = 2) out vec3 fragColor;  // Базовый цвет вершины
 
 void main() {
-    // 1. Сначала переводим локальную позицию вершины в мировое пространство
-    vec4 worldPos = ubo.model * vec4(inPosition, 1.0);
-    fragPos = worldPos.xyz; // Отправляем позицию дальше для расчета света
+    // 1. Переводим локальную позицию вершины в мировое пространство
+    vec4 worldPos = model.model * vec4(inPosition, 1.0);
+    fragPos = worldPos.xyz;
     
-    // 2. Пересчитываем нормаль. Inverse/transpose нужны, чтобы нормаль не искажалась при неравномерном масштабировании!
-    fragNormal = normalize(mat3(transpose(inverse(ubo.model))) * inNormal);
+    // 2. Трансформируем вектор нормали матрицей normalMatrix (чтобы избежать искажений при масштабировании)
+    fragNormal = normalize(mat3(model.normalMatrix) * inNormal);
     
-    // 3. Смешиваем процедурный цвет (inColor) с базовым цветом интерфейса (ubo.userColor) (Задания 4 и 5)
-    fragColor = inColor * ubo.userColor.rgb;
+    // 3. Передаем процедурный цвет во фрагментный шейдер
+    fragColor = inColor;
     
-    // 4. Финальный перевод точки на 2D-экран (применяем Камеру и Проекцию).
-    // gl_Position - это встроенная переменная Vulkan/GLSL.
-    gl_Position = ubo.proj * ubo.view * worldPos;
+    // 4. Финальная позиция на экране: перевод из мировых координат в clip space
+    gl_Position = scene.proj * scene.view * worldPos;
 }
