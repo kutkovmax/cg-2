@@ -122,13 +122,15 @@ static Mat4 mat4_look_at(Vec3 eye, Vec3 center, Vec3 up) {
 }
 
 // ===========================================================================
-// Geometry
+// Геометрия (Geometry)
 // ===========================================================================
 
+// Вершина (Vertex) - базовая единица 3D-модели.
+// Хранит пакет данных о конкретной точке в пространстве.
 struct Vertex {
-    float pos[3];
-    float normal[3];
-    float color[3];   // Task 5: procedural per-vertex color
+    float pos[3];     // Позиция (X, Y, Z) в локальных координатах
+    float normal[3];  // Нормаль (вектор направления) - нужна для расчёта освещения
+    float color[3];   // Цвет (R, G, B) - Задание 5: процедурный цвет для каждой вершины
 };
 
 static std::vector<Vertex>   g_vertices;
@@ -192,14 +194,17 @@ static void buildTorus(float R, float r, int segments, int sides) {
 }
 
 // ===========================================================================
-// Vulkan resources
+// Ресурсы Vulkan (Vulkan resources)
 // ===========================================================================
 
+// UBO (Uniform Buffer Object) - структура данных, которая передается 
+// из памяти CPU в память видеокарты (GPU) каждый кадр.
+// Содержит матрицы трансформации (MVP) и пользовательские параметры (цвет).
 struct UBO {
-    Mat4  model;
-    Mat4  view;
-    Mat4  proj;
-    float user_color[4]; // vec4 — aligned to 16 bytes naturally
+    Mat4  model;         // Матрица Модели (положение объекта в мире)
+    Mat4  view;          // Матрица Вида (камера)
+    Mat4  proj;          // Матрица Проекции (перевод в 2D экран)
+    float user_color[4]; // Цвет, выбранный в ImGui (RGBA). Выровнен по 16 байт по правилам Vulkan
 };
 static_assert(sizeof(UBO) == 3 * 64 + 16, "UBO size mismatch");
 
@@ -218,29 +223,29 @@ static VkPipelineLayout      g_pipe_layout = VK_NULL_HANDLE;
 static VkPipeline            g_pipeline    = VK_NULL_HANDLE;
 
 // ===========================================================================
-// Application state
+// Состояние приложения (Глобальные переменные для интерфейса и логики)
 // ===========================================================================
 
-// Task 1: projection
-static int   g_use_perspective = 1; // 1 = perspective, 0 = ortho (int for ImGui::RadioButton)
-static float g_ortho_size      = 2.5f;
+// Задание 1: Переключение матрицы проекции
+static int   g_use_perspective = 1; // 1 = Перспективная проекция, 0 = Ортографическая (int для кнопок ImGui)
+static float g_ortho_size      = 2.5f; // Размер видимой области для ортографической проекции
 
-// Task 2: transform controls
-static float g_pos[3]   = { 0.f, 0.f, 0.f };
-static float g_rot[3]   = { 0.f, 0.f, 0.f }; // radians X/Y/Z
-static float g_scale[3] = { 1.f, 1.f, 1.f };
+// Задание 2: Элементы интерфейса для сдвига, поворота и масштаба
+static float g_pos[3]   = { 0.f, 0.f, 0.f }; // Позиция (Translate)
+static float g_rot[3]   = { 0.f, 0.f, 0.f }; // Углы поворота (Rotate) в радианах по X/Y/Z
+static float g_scale[3] = { 1.f, 1.f, 1.f }; // Масштаб (Scale)
 
-// Task 3: animation
-static bool  g_anim_playing = false;
-static float g_anim_speed   = 1.f;
-static float g_anim_radius  = 0.f;
-static float g_anim_height  = 0.f;
-static float g_anim_spin    = 1.f;    // Y-rotations per orbit
-static float g_anim_time    = 0.f;
-static double g_prev_time   = -1.0;
+// Задание 3: Анимация и движение по сложной траектории
+static bool  g_anim_playing = false;  // Флаг воспроизведения (Play/Pause)
+static float g_anim_speed   = 1.f;    // Скорость анимации
+static float g_anim_radius  = 0.f;    // Радиус вращения (орбиты)
+static float g_anim_height  = 0.f;    // Высота подпрыгивания (амплитуда по оси Z)
+static float g_anim_spin    = 1.f;    // Вращение объекта вокруг своей оси Y во время полета
+static float g_anim_time    = 0.f;    // Текущее время анимации (накапливается каждый кадр)
+static double g_prev_time   = -1.0;   // Время предыдущего кадра для расчета delta time (dt)
 
-// Task 4: user color multiplier
-static float g_user_color[4] = { 1.f, 1.f, 1.f, 1.f };
+// Задание 4: Возможность изменения цвета фигуры из интерфейса
+static float g_user_color[4] = { 1.f, 1.f, 1.f, 1.f }; // Базовый цвет объекта (RGBA)
 
 // ===========================================================================
 // Helpers
@@ -550,11 +555,11 @@ void update(double time) {
 
     // Task 2: position / rotation / scale
     if (ImGui::CollapsingHeader("Трансформация", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::DragFloat3("Позиция",    g_pos,   0.01f, -5.f, 5.f);
+        ImGui::SliderFloat3("Позиция",  g_pos,   -5.f, 5.f);
         ImGui::SliderFloat("Поворот X", &g_rot[0], -(float)M_PI, (float)M_PI);
         ImGui::SliderFloat("Поворот Y", &g_rot[1], -(float)M_PI, (float)M_PI);
         ImGui::SliderFloat("Поворот Z", &g_rot[2], -(float)M_PI, (float)M_PI);
-        ImGui::DragFloat3("Масштаб",   g_scale, 0.01f, 0.05f, 5.f);
+        ImGui::SliderFloat3("Масштаб",  g_scale, 0.05f, 5.f);
     }
 
     // Task 3: animation
@@ -581,14 +586,15 @@ void update(double time) {
     ImGui::TextDisabled("Вершин: %zu  Индексов: %zu", g_vertices.size(), g_indices.size());
     ImGui::End();
 
-    // ---- Build model matrix ----
-    // Trajectory (task 3): circle + Z oscillation
+    // ---- Построение Матрицы Модели (Model Matrix) ----
+    // Траектория движения (Задание 3): Фигуры Лиссажу (круг/эллипс + колебания по Z)
     float anim_x  = g_anim_radius * std::cos(g_anim_time);
     float anim_y  = g_anim_radius * std::sin(g_anim_time);
     float anim_z  = g_anim_height * std::sin(2.f * g_anim_time);
-    float anim_ry = g_anim_spin   * g_anim_time; // auto Y spin
+    float anim_ry = g_anim_spin   * g_anim_time; // Автоматическое вращение вокруг своей оси Y
 
-    // TRS order: scale, then rotate, then translate
+    // Порядок умножения матриц TRS (Translate * Rotate * Scale) важен!
+    // Читается справа налево: сначала масштабируем, затем вращаем (по X, Y, Z), затем сдвигаем.
     Mat4 model = mat4_mul(
         mat4_translate(g_pos[0] + anim_x, g_pos[1] + anim_y, g_pos[2] + anim_z),
         mat4_mul(mat4_rotate_z(g_rot[2]),
@@ -596,13 +602,15 @@ void update(double time) {
         mat4_mul(mat4_rotate_x(g_rot[0]),
                  mat4_scale(g_scale[0], g_scale[1], g_scale[2])))));
 
-    // ---- Projection matrix (task 1) ----
+    // ---- Построение Матрицы Проекции (Projection Matrix) - Задание 1 ----
     auto& ctx = graphics::internal::context;
-    float aspect = (float)ctx.swapchain_extent.width / (float)ctx.swapchain_extent.height;
+    float aspect = (float)ctx.swapchain_extent.width / (float)ctx.swapchain_extent.height; // Соотношение сторон экрана
     Mat4 proj;
     if (g_use_perspective == 1) {
+        // Перспективная проекция: объекты вдали кажутся меньше (FOV = 45 градусов, ближняя и дальняя плоскости отсечения)
         proj = mat4_perspective((float)M_PI / 4.f, aspect, 0.1f, 100.f);
     } else {
+        // Ортографическая проекция: нет эффекта глубины (отличный выбор для чертежей, изометрии)
         float hw = g_ortho_size * aspect;
         proj = mat4_ortho(-hw, hw, -g_ortho_size, g_ortho_size, 0.1f, 100.f);
     }
